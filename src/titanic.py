@@ -3,6 +3,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import string
 from sklearn.linear_model import SGDClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.kernel_approximation import RBFSampler
@@ -16,14 +17,70 @@ def load_dataset(dataset_path):
     return pd.read_csv(csv_path)
 
 
+def substrings_in_string(big_string, substrings):
+    for curr_str in substrings:
+        if big_string.find(curr_str) != -1:
+            return curr_str
+    return np.nan
+
+
+def get_tittle(dataset):
+    title_list = ['Mrs', 'Mr', 'Master', 'Miss', 'Major', 'Rev',
+                  'Dr', 'Ms', 'Mlle', 'Col', 'Capt', 'Mme', 'Countess',
+                  'Don', 'Jonkheer']
+
+    dataset['Title'] = dataset['Name'].map(lambda x: substrings_in_string(x, title_list))
+    def replace_titles(x):
+        title=x['Title']
+        if title in ['Don', 'Major', 'Capt', 'Jonkheer', 'Rev', 'Col', 'Master']:
+            return 'Officer'
+        elif title in ['Countess', 'Mme']:
+            return 'Mrs'
+        elif title in ['Mlle', 'Ms']:
+            return 'Miss'
+        elif title =='Dr':
+            if x['Sex']=='Male':
+                return 'Mr'
+            else:
+                return 'Mrs'
+        else:
+            return title
+    dataset['Title'] = dataset.apply(replace_titles, axis=1)
+
+    def title_to_num(title):
+        if title == 'Mrs':
+            return 0
+        elif title =='Miss':
+            return 1
+        elif title == 'Officer':
+            return 2
+        elif title == 'Mr':
+            return 3
+        else:
+            print("Invalid title", title)
+            return 10
+
+    dataset['Title'] = dataset['Title'].map(title_to_num);
+    return dataset['Title']
+
+
+#TODO: fare split on members number
 def get_feature_matrix(dataset):
+    dataset['Title'] = get_tittle(dataset)
     dataset['Sex'] = dataset['Sex'].map(lambda x: 1 if x=='male' else 0)
     dataset['Age'] = dataset['Age'].fillna(dataset['Age'].mean());
     dataset['Fare'] = dataset['Fare'].fillna(dataset['Fare'].mean());
 
+    dataset['FamilySize'] = dataset['SibSp'] + dataset['Parch'] + 1
+    dataset['ActualFare'] = dataset['Fare'] / (dataset['FamilySize'])
+    dataset['ActualFare'] = dataset['ActualFare'].fillna(dataset['ActualFare'].mean())
+
+    print("COUNT - ", dataset['FamilySize'].value_counts(ascending=True))
+    #print("COUNT - ", dataset['ActualFare'].value_counts(ascending=True))
+
     dataset['Embarked'] = dataset['Embarked'].map(lambda x: 0 if x == 'C' else 1 if x == 'Q' else 2)
     #dataset['Age'] = dataset['Age'].fillna(0);
-    feature_matrix = dataset.as_matrix(columns=['Pclass', 'Embarked', 'Fare', 'Sex', 'Age'])
+    feature_matrix = dataset.as_matrix(columns=['Pclass', 'Sex', 'Title', 'Fare', 'Age', 'Embarked', 'FamilySize' ])
     print(dataset.isnull().any())
     return feature_matrix
 
@@ -40,6 +97,15 @@ def test_prediction(random_forest):
     create_prediction_file(test_dataset, predict_result)
 
 
+def plot_histogram(x, y):
+    fig, axs = plt.subplots(1, 2, sharey=True, tight_layout=True)
+
+    n_bins=20
+    # We can set the number of bins with the `bins` kwarg
+    axs[0].hist(x, bins=n_bins)
+    axs[1].hist(y, bins=n_bins)
+    plt.show()
+
 
 #probably the most correlation is due to passanger class, sex and age
 def main():
@@ -48,23 +114,20 @@ def main():
     #print(train_dataset['PassengerId'])
     # plt.scatter(train_dataset["Age"], train_dataset["Fare"], c=train_dataset["Survived"]);
     # plt.show();
+
+    #plt.bar(train_dataset['Age'])
+    # plt.hist([train_dataset['Age'], train_dataset['Survived']])
+    # plt.show()
+
+
     feature_matrix = get_feature_matrix(train_dataset)
     print(feature_matrix)
+   # plot_histogram(train_dataset['Age'], train_dataset['Survived'])
     feature_output = train_dataset.as_matrix(columns=['Survived'])
 
-    print(feature_matrix.shape)
-    # rbf_feature = RBFSampler(random_state=1, gamma=1)
-    # feature_matrix = rbf_feature.fit_transform(feature_matrix)
-    sgd_clf = SGDClassifier(random_state=42)
-    sgd_clf.fit(feature_matrix, feature_output)
-
-    val_score = cross_val_score(sgd_clf, feature_matrix, feature_output, cv=3, scoring="accuracy");
-    print(val_score)
-
-    survive_train_predict = cross_val_predict(sgd_clf, feature_matrix, feature_output, cv=3)
-    #print(survive_train_predict)
-    #print(sgd_clf.predict([feature_matrix[0]]), sgd_clf.predict([feature_matrix[1]]), sgd_clf.predict([feature_matrix[3]]))
-
+     #print(feature_matrix)
+    #class_weights = {0:3, 1:1, 2:1, 3:3, 4:2}
+    #class_weights = {0: 3, 1: 1}
     random_forest = RandomForestClassifier(random_state=42)
     print (random_forest.fit(feature_matrix, feature_output))
     val_score = cross_val_score(random_forest, feature_matrix, feature_output, cv=3, scoring="accuracy");
@@ -73,7 +136,7 @@ def main():
     #print(survive_prob)
 
     test_prediction(random_forest)
-    #TODO: probably some additional feature analysis or engineering
+    #TODO: probably some additional feature analysis or engineering, try to dropna
 
 
 if __name__ == "__main__":
